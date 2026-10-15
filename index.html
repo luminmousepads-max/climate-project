@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EcoVision — Planetary Climate Monitor</title>
+<meta name="description" content="Live planetary climate dashboard: CO₂, temperature, earthquakes, wildfires and the ISS on an interactive globe.">
+<link rel="icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="globe" tabindex="0" aria-label="Interactive globe. Drag to rotate, click to inspect a location, arrow keys to turn."></canvas>
+<header><span>LIVE PLANETARY FEED</span><small id="utc"></small></header>
+<main class="hud"><section class="col" id="L"></section><section class="col" id="R"></section><section id="S"></section></main>
+<aside id="card" hidden></aside>
+<script type="module" src="app.js"></script>
+</body>
+</html>
