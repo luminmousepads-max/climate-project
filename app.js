@@ -61,8 +61,9 @@ const quakes = () => feed('usgs', async () => {
 });
 const eonet = () => feed('eonet', async () => {
   const j = await get('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=300'), n = {}; live.events = [];
-  live.storms = [];
+  live.storms = []; live.fires = [];
   j.events.forEach(e => { const c = e.categories[0].id; n[c] = (n[c] || 0) + 1; const g = e.geometry[e.geometry.length - 1]; if (c === 'severeStorms') live.storms.push(e.title);
+    if ((c === 'wildfires' || c === 'volcanoes') && g && g.type === 'Point') live.fires.push({ la: g.coordinates[1] * D, lo: g.coordinates[0] * D, v: c === 'volcanoes' });
     if (g && g.type === 'Point') live.events.push({ la: g.coordinates[1] * D, lo: g.coordinates[0] * D }); });
   set('wf', n.wildfires || 0); set('sv', n.severeStorms || 0); alertUI(); set('ev', j.events.length + ' open', j.events.length / 2.5);
 });
@@ -101,7 +102,7 @@ function build(rs) {
   rs.forEach(r => { r.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo']((x + 180) * 4, (90 - y) * 4)); g.closePath(); });
   g.fillStyle = '#fff'; g.fill('evenodd'); mask = g.getImageData(0, 0, 1440, 720).data;
   for (let la = -88.5; la < 90; la += 1.5) { const n = Math.round(360 * Math.cos(la * D) / 1.5);
-    for (let i = 0; i < n; i++) { const lo = -180 + (i + .5) * 360 / n; if (isLand(la, lo)) dots.push([la * D, lo * D, Math.sin(la * D), Math.cos(la * D), 0, -1]); } }
+    for (let i = 0; i < n; i++) { const lo = -180 + (i + .5) * 360 / n; if (isLand(la, lo)) dots.push([la * D, lo * D, Math.sin(la * D), Math.cos(la * D), 0, -1, -1]); } }
   for (let la = -87; la < 90; la += 3) { const n = Math.round(360 * Math.cos(la * D) / 3);
     for (let i = 0; i < n; i++) { const lo = -180 + (i + .5) * 360 / n; if (!isLand(la, lo)) sea.push([la * D, lo * D, Math.sin(la * D), Math.cos(la * D), 0, -1]); } }
   tint();
@@ -112,7 +113,7 @@ function build(rs) {
 })();
 
 /* ---------- render ---------- */
-let w, h, R, CX, CY, dpr, yaw = 80 * D, pitch = 20 * D, vy = 0, vp = 0, en = 1, drag = null, marker = null, thermal = true, G = null, warns = [], fly = null;
+let w, h, R, CX, CY, dpr, yaw = 80 * D, pitch = 20 * D, vy = 0, vp = 0, en = 1, drag = null, marker = null, mode = 'thermal', G = null, TG = null, tors = [], ext = [], warns = [], fly = null;
 const stars = Array.from({ length: 900 }, () => { const u = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - u * u), r = 1.15 + Math.random() * 2;
   return { x: s * Math.cos(a) * r, y: u * r, z: s * Math.sin(a) * r, j: [Math.random() - .5, Math.random() - .5] }; });
 const grid = [];
@@ -120,17 +121,21 @@ for (let la = -60; la <= 60; la += 30) { const l = []; for (let lo = -180; lo <=
 for (let lo = -180; lo < 180; lo += 30) { const l = []; for (let la = -90; la <= 90; la += 3) l.push([la * D, lo * D]); grid.push(l); }
 
 /* ---------- thermal layer + cyclone early warning (Open-Meteo, 10° global scan) ---------- */
-const PAL = Array.from({ length: 48 }, (_, i) => `hsl(${250 - i / 47 * 250},85%,58%)`);
+const COL = [...Array.from({ length: 48 }, (_, i) => `hsl(${250 - i / 47 * 250},85%,58%)`), '#ffd23c', '#ff9a1f', '#ff4a2a', '#e0309a'];
 const LATS = [...Array(17)].map((_, i) => -80 + i * 10), LONS = [...Array(36)].map((_, i) => -180 + i * 10);
 const cl = (v, a, b) => Math.max(a, Math.min(b, v));
 function interp(la, lo) {
   const fi = cl((la + 80) / 10, 0, 16), i = Math.min(15, Math.floor(fi)), fj = ((lo + 180) / 10 + 36) % 36, j = Math.floor(fj), j2 = (j + 1) % 36, u = fi - i, v = fj - j, T = G.T, at = (a, b) => T[a * 36 + b];
   return at(i, j) * (1 - u) * (1 - v) + at(i + 1, j) * u * (1 - v) + at(i, j2) * (1 - u) * v + at(i + 1, j2) * u * v;
 }
-function tint() { if (!G) return; for (const d of [...dots, ...sea]) d[5] = Math.round(cl((interp(d[0] / D, d[1] / D) + 30) / 75, 0, 1) * 47); }
+function tint() {
+  const key = (x, y) => Math.round(x / D / 4) * 4 + ',' + Math.round(y / D / 4) * 4;
+  if (G) for (const d of [...dots, ...sea]) d[5] = Math.round(cl((interp(d[0] / D, d[1] / D) + 30) / 75, 0, 1) * 47);
+  if (TG) for (const d of dots) { const p = TG.get(key(d[0], d[1])), ix = p ? p[2] : 0; d[6] = ix >= 70 ? 51 : ix >= 50 ? 50 : ix >= 30 ? 49 : ix >= 15 ? 48 : -1; }
+}
 const mx = a => Math.max(...a.filter(v => v != null)), mn = a => Math.min(...a.filter(v => v != null));
 const batch = async (pts, q) => { const o = []; for (let i = 0; i < pts.length; i += 100) { const c = pts.slice(i, i + 100);
-  o.push(get(`https://api.open-meteo.com/v1/forecast?latitude=${c.map(p => p[0])}&longitude=${c.map(p => p[1])}&${q}&wind_speed_unit=kmh&timezone=UTC`, 25000)); }
+  o.push(get(`https://api.open-meteo.com/v1/forecast?latitude=${c.map(p => p[0])}&longitude=${c.map(p => p[1])}&${q}${q.includes('wind_speed_unit') ? '' : '&wind_speed_unit=kmh'}&timezone=UTC`, 25000)); }
   return (await Promise.all(o)).flatMap(j => Array.isArray(j) ? j : [j]); };
 async function refine(flag) {   // zoom into the strongest coarse signals on a 1.5° grid
   flag.sort((a, b) => b.g - a.g); const top = [];
@@ -156,6 +161,7 @@ async function scan() {
     }
     G = { T: s.T }; tint(); warns = s.w.map(w => ({ ...w, lv: w.g >= 160 ? 'SEVERE' : w.g >= 120 ? 'WARNING' : 'WATCH' }));
     set('hot', sgn(Math.round(mx(s.T))) + '°C'); set('cold', sgn(Math.round(mn(s.T))) + '°C'); set('cy', warns.length); alertUI();
+    ext = s.T.map((t, i) => ({ t, la: LATS[Math.floor(i / 36)] * D, lo: LONS[i % 36] * D })).filter(e => e.t >= 40 || e.t <= -35);
   } catch { set('cy', '—'); set('hot', '—'); set('cold', '—'); }
 }
 function alertUI() {
@@ -167,9 +173,51 @@ function alertUI() {
     `<small>Forecast-model signal, not an official warning${live.storms && live.storms.length ? ' · NASA EONET active now: ' + live.storms.slice(0, 2).join(', ') : ''}. Follow your national weather service.</small>`;
 }
 $('#alert').onclick = e => { const b = e.target.closest('button'); if (b) { fly = { la: warns[b.dataset.i].la * D, lo: warns[b.dataset.i].lo * D }; en = 1; } };
-$('#bT').onclick = e => { thermal = !thermal; e.currentTarget.setAttribute('aria-pressed', thermal); document.querySelector('header').classList.toggle('th', thermal); };
 document.querySelector('header').classList.add('th');
 every(scan, 36e5);
+
+/* ---------- tornado-favourability (CAPE x deep-layer shear, 3-day forecast, land 16-56° both hemispheres) ---------- */
+const LV = ix => ix >= 70 ? ['EXTREME', 51] : ix >= 50 ? ['HIGH', 50] : ix >= 30 ? ['MODERATE', 49] : ['LOW', 48];
+async function tscan() {
+  const box = $('#tor'); box.hidden = false; box.innerHTML = '<small>Scanning forecast for tornado-favourable conditions…</small>';
+  try {
+    if (!mask) throw 0;
+    let s = null; try { s = JSON.parse(localStorage.getItem('ev_tor')); } catch {}
+    if (!s || Date.now() - s.t > 3 * 36e5) {
+      const pts = []; for (const la of [-44, -40, -36, -32, -28, -24, -20, -16, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56]) for (let lo = -180; lo < 180; lo += 4) if (isLand(la, lo)) pts.push([la, lo]);
+      const r = await batch(pts, 'hourly=cape,wind_speed_10m,wind_direction_10m,wind_speed_500hPa,wind_direction_500hPa&forecast_days=3&wind_speed_unit=ms');
+      s = { t: Date.now(), p: r.map((x, i) => { const h = x.hourly; let b = [0, '', 0, 0];
+        h.time.forEach((tm, k) => { const c = h.cape[k], s1 = h.wind_speed_10m[k], d1 = h.wind_direction_10m[k], s5 = h.wind_speed_500hPa[k], d5 = h.wind_direction_500hPa[k];
+          if ([c, s1, d1, s5, d5].some(v => v == null)) return;
+          const sh = Math.hypot(-s5 * Math.sin(d5 * D) + s1 * Math.sin(d1 * D), -s5 * Math.cos(d5 * D) + s1 * Math.cos(d1 * D));
+          if (c < 300 || sh < 8) return; const ix = Math.round(Math.min(c / 2000, 1.5) * Math.min(sh / 20, 1.5) / 2.25 * 100);
+          if (ix > b[0]) b = [ix, tm, Math.round(c), Math.round(sh)]; });
+        return [pts[i][0], pts[i][1], ...b]; }) };
+      try { localStorage.setItem('ev_tor', JSON.stringify(s)); } catch {}
+    }
+    TG = new Map(s.p.map(p => [p[0] + ',' + p[1], p])); tint(); tors = [];
+    for (const p of s.p.filter(p => p[2] >= 15).sort((a, b) => b[2] - a[2])) if (tors.length < 6 && tors.every(c => Math.hypot(c[0] - p[0], (c[1] - p[1]) * Math.cos(p[0] * D)) > 10)) tors.push(p);
+    await Promise.all(tors.map(async p => { try { const g = await get(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${p[0]}&longitude=${p[1]}&localityLanguage=en`);
+      p.name = [g.principalSubdivision, g.countryName].filter(Boolean).join(', '); } catch {} }));
+  } catch { TG = null; box.innerHTML = '<small>Tornado data unavailable right now (map or forecast feed offline). Try again shortly.</small>'; return; }
+  torUI();
+}
+function torUI() {
+  const b = $('#tor'); if (mode !== 'tornado') { b.hidden = true; return; } if (!TG) return; b.hidden = false;
+  const when = p => { const hr = Math.round((Date.parse(p[3] + 'Z') - Date.now()) / 36e5); return hr > 1 ? `peak in ~${hr} h` : 'peak now'; };
+  b.innerHTML = '<h4>TORNADO-FAVOURABLE CONDITIONS · NEXT 72 H</h4>' + (tors.length ? tors.map((p, i) => { const [n, k] = LV(p[2]);
+    return `<button data-i="${i}"><b style="color:${COL[k]}">${n}</b> &nbsp;${p.name || Math.abs(p[0]) + '°' + (p[0] < 0 ? 'S' : 'N') + ' ' + Math.abs(p[1]) + '°' + (p[1] < 0 ? 'W' : 'E')} · index ${p[2]}/100 · CAPE ${p[4]} · shear ${p[5]} m/s · ${when(p)}</button>`; }).join('')
+    : '<small>No tornado-favourable conditions detected over land in the next 72 h.</small>') +
+    '<small>Indicative index (CAPE × wind shear, Open-Meteo model data), not a tornado forecast. Follow NOAA SPC or your national weather service.</small>';
+}
+$('#tor').onclick = e => { const b = e.target.closest('button'); if (b) { fly = { la: tors[b.dataset.i][0] * D, lo: tors[b.dataset.i][1] * D }; en = 1; } };
+function setMode(m) {
+  mode = mode === m ? 'off' : m; $('#bT').setAttribute('aria-pressed', mode === 'thermal'); $('#bK').setAttribute('aria-pressed', mode === 'tornado');
+  document.querySelector('header').classList.toggle('th', mode !== 'off');
+  $('#legend').innerHTML = mode === 'tornado' ? ['LOW', 'MODERATE', 'HIGH', 'EXTREME'].map((n, i) => `<span class="sw" style="--c:${COL[48 + i]}">${n}</span>`).join('') : '<span>-30°C</span><i></i><span>45°C</span>';
+  torUI(); if (mode === 'tornado' && !TG) tscan();
+}
+$('#bT').onclick = () => setMode('thermal'); $('#bK').onclick = () => setMode('tornado');
 
 function size() {
   const m = innerWidth < 900; dpr = Math.min(2, devicePixelRatio || 1); w = innerWidth; h = m ? Math.round(innerHeight * .6) : innerHeight;
@@ -198,14 +246,15 @@ function frame(t) {
   cx.lineWidth = 1; cx.strokeStyle = '#fff'; cx.globalAlpha = .06; cx.stroke(B); cx.globalAlpha = .2; cx.stroke(F);
   cx.beginPath(); cx.arc(CX, CY, R, 0, 7); cx.globalAlpha = .14; cx.stroke();
   // land dots: back side faint, front side brighter toward the rim
-  const fr = [], th = thermal && G;
+  const fr = [], th = mode === 'thermal' && G, tr = mode === 'tornado' && TG, cm = th || tr;
   cx.globalAlpha = .05;
-  for (const [la, lo, sl, cl, , ci] of dots) { const d = lo - yaw, cd = Math.cos(d), z = sp * sl + cp * cl * cd;
-    if (z > 0) fr.push(lo, sl, cl, z, ci, 1.7); else cx.fillRect(CX + R * cl * Math.sin(d) - .6, CY - R * (cp * sl - sp * cl * cd) - .6, 1.2, 1.2); }
-  if (th) for (const [la, lo, sl, cl, , ci] of sea) { const z = sp * sl + cp * cl * Math.cos(lo - yaw); if (z > 0) fr.push(lo, sl, cl, z, ci, 1.1); }
+  for (const d of dots) { const sl = d[2], cl = d[3], dd = d[1] - yaw, cd = Math.cos(dd), z = sp * sl + cp * cl * cd;
+    if (z > 0) fr.push(d[1], sl, cl, z, tr ? d[6] : d[5], 1.7); else cx.fillRect(CX + R * cl * Math.sin(dd) - .6, CY - R * (cp * sl - sp * cl * cd) - .6, 1.2, 1.2); }
+  if (th) for (const d of sea) { const z = sp * d[2] + cp * d[3] * Math.cos(d[1] - yaw); if (z > 0) fr.push(d[1], d[2], d[3], z, d[5], 1.1); }
   let lc = '';
-  for (let i = 0; i < fr.length; i += 6) { const d = fr[i] - yaw, sl = fr[i + 1], cl = fr[i + 2], ci = fr[i + 4], s = fr[i + 5], c = th && ci >= 0 ? PAL[ci] : '#fff';
-    if (c !== lc) cx.fillStyle = lc = c; cx.globalAlpha = (th && ci >= 0 ? .45 + .4 : .3 + .6) * (th && s < 1.5 ? .7 : 1) * (.55 + .45 * (1 - fr[i + 3]));
+  for (let i = 0; i < fr.length; i += 6) { const d = fr[i] - yaw, sl = fr[i + 1], cl = fr[i + 2], ci = fr[i + 4], hit = cm && ci >= 0, s = tr ? (hit ? 2.4 : 1.4) : fr[i + 5], c = hit ? COL[ci] : '#fff';
+    if (c !== lc) cx.fillStyle = lc = c;
+    cx.globalAlpha = tr ? (hit ? .95 : .22) : (hit ? .85 : .9) * (th && s < 1.5 ? .7 : 1) * (.55 + .45 * (1 - fr[i + 3])) * (hit ? 1 : .8);
     cx.fillRect(CX + R * cl * Math.sin(d) - s / 2, CY - R * (cp * sl - sp * cl * Math.cos(d)) - s / 2, s, s); }
   cx.fillStyle = '#fff';
   // live overlays
@@ -217,6 +266,19 @@ function frame(t) {
   if (live.iss) { const p = P(live.iss.la, live.iss.lo), k = p[2] > 0 ? 1 : .25, x = CX + R * 1.06 * p[0], y = CY - R * 1.06 * p[1];
     cx.globalAlpha = k; cx.beginPath(); cx.moveTo(x - 7, y); cx.lineTo(x + 7, y); cx.moveTo(x, y - 7); cx.lineTo(x, y + 7); cx.stroke();
     cx.beginPath(); cx.arc(x, y, 2.5, 0, 7); cx.fill(); cx.font = '600 10px Rajdhani,sans-serif'; cx.fillText('ISS', x + 9, y - 6); }
+  if (mode === 'thermal') {
+    for (const f of live.fires || []) { const p = P(f.la, f.lo); if (p[2] <= 0) continue; const x = CX + R * p[0], y = CY - R * p[1], g = cx.createRadialGradient(x, y, 0, x, y, 9);
+      g.addColorStop(0, f.v ? 'rgba(255,50,50,.95)' : 'rgba(255,170,30,.95)'); g.addColorStop(1, 'rgba(255,90,0,0)');
+      cx.globalAlpha = .6 + .4 * Math.sin(t / 300 + f.la * 9); cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, 9, 0, 7); cx.fill(); }
+    cx.font = '700 10px Rajdhani,sans-serif';
+    for (const e of ext) { const p = P(e.la, e.lo); if (p[2] <= 0) continue; const x = CX + R * p[0], y = CY - R * p[1], q = (ph + (e.la % 1)) % 1;
+      cx.strokeStyle = cx.fillStyle = e.t >= 40 ? '#ff5a1a' : '#5ac8ff'; cx.lineWidth = 1.2; cx.globalAlpha = 1 - q; cx.beginPath(); cx.arc(x, y, 5 + q * 14, 0, 7); cx.stroke();
+      cx.globalAlpha = .95; cx.fillText(Math.round(e.t) + '°', x + 9, y + 3); }
+    cx.strokeStyle = cx.fillStyle = '#fff'; cx.lineWidth = 1;
+  }
+  if (mode === 'tornado') { cx.strokeStyle = '#ffb22e'; cx.lineWidth = 1.5;
+    for (const p of tors) { const q = P(p[0] * D, p[1] * D); if (q[2] <= 0) continue; cx.globalAlpha = 1 - ph; cx.beginPath(); cx.arc(CX + R * q[0], CY - R * q[1], 6 + ph * 18, 0, 7); cx.stroke(); }
+    cx.strokeStyle = '#fff'; cx.lineWidth = 1; }
   for (const w of warns) { const p = P(w.la * D, w.lo * D); if (p[2] <= 0) continue; const x = CX + R * p[0], y = CY - R * p[1];
     cx.strokeStyle = cx.fillStyle = '#ff5a3c'; cx.lineWidth = 1.5; for (const k of [0, .5]) { const q = (ph + k) % 1; cx.globalAlpha = 1 - q; cx.beginPath(); cx.arc(x, y, 8 + q * 22, 0, 7); cx.stroke(); }
     cx.globalAlpha = 1; cx.beginPath(); cx.arc(x, y, 3.5, 0, 7); cx.fill(); cx.font = '700 10px Rajdhani,sans-serif'; cx.fillText('CYCLONE ' + w.lv, x + 14, y + 4); cx.strokeStyle = cx.fillStyle = '#fff'; cx.lineWidth = 1; }

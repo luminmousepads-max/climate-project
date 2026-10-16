@@ -14,9 +14,9 @@
 <body>
 <canvas id="globe" tabindex="0" aria-label="Interactive globe. Drag to rotate, click to inspect a location, arrow keys to turn."></canvas>
 <header><span>LIVE PLANETARY FEED</span><small id="utc"></small>
-<button id="bT" aria-pressed="true">THERMAL LAYER</button>
+<button id="bT" aria-pressed="true">THERMAL LAYER</button><button id="bK" aria-pressed="false">TORNADO RISK</button>
 <div id="legend"><span>-30°C</span><i></i><span>45°C</span></div></header>
-<div id="alert" role="alert" hidden></div>
+<div id="notes"><div id="alert" role="alert" hidden></div><div id="tor" hidden></div></div>
 <main class="hud"><section class="col" id="L"></section><section class="col" id="R"></section><section id="S"></section></main>
 <aside id="card" hidden></aside>
 <script type="module" src="app.js"></script>
