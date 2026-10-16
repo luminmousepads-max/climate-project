@@ -26,6 +26,8 @@ header button:focus-visible,#alert button:focus-visible{outline:1px solid #fff;o
 #legend{display:none;align-items:center;justify-content:center;gap:8px;margin-top:8px;font-size:10px;color:#777;letter-spacing:.15em}
 #legend i{width:130px;height:5px;background:linear-gradient(90deg,hsl(250,85%,58%),hsl(180,85%,58%),hsl(90,85%,58%),hsl(40,85%,58%),hsl(0,85%,58%))}
 header.th #legend{display:flex}
+#thinfo{display:none;margin-top:6px;font-size:9px;letter-spacing:.25em;color:#555}
+header.tm #thinfo{display:block}
 #notes{position:fixed;top:112px;left:50%;transform:translateX(-50%);z-index:4;width:min(560px,calc(100% - 24px));display:flex;flex-direction:column;gap:8px;pointer-events:none}
 #notes>*{pointer-events:auto;border-radius:3px;padding:8px 12px}
 #alert{background:rgba(20,4,2,.92);border:1px solid #ff5a3c;box-shadow:0 0 30px rgba(255,90,60,.25)}

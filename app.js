@@ -172,22 +172,34 @@ function alertUI() {
     `<small>Forecast-model signal, not an official warning${live.storms && live.storms.length ? ' · NASA EONET active now: ' + live.storms.slice(0, 2).join(', ') : ''}. Follow your national weather service.</small>`;
 }
 $('#alert').onclick = e => { const b = e.target.closest('button'); if (b) { fly = { la: warns[b.dataset.i].la * D, lo: warns[b.dataset.i].lo * D }; en = 1; } };
-document.querySelector('header').classList.add('th');
+document.querySelector('header').classList.add('th', 'tm');
+document.querySelector('header').insertAdjacentHTML('beforeend', '<div id="thinfo"></div>');
 every(scan, 36e5);
 
+// Seasonal climatology: only used for grid points the live feed couldn't supply, or if it is down entirely.
+const estT = (la, lo) => { const n = new Date(), doy = (n - Date.UTC(n.getUTCFullYear(), 0, 0)) / 864e5; return 27 - .0066 * la * la + la / 90 * 14 * Math.cos(2 * Math.PI * (doy - 200) / 365); };
 async function thermalScan() {
-  try {
-    let s = null; try { s = JSON.parse(localStorage.getItem('ev_th')); } catch {}
-    if (!s || Date.now() - s.t > 30 * 6e4) {
-      const r = await batch(LATS.flatMap(la => LONS.map(lo => [la, lo])), 'current=temperature_2m'), v = r.map(x => x.current && x.current.temperature_2m);
-      const ok = v.filter(x => x != null), m = ok.reduce((p, q) => p + q, 0) / ok.length;
-      s = { t: Date.now(), T: v.map(x => x == null ? m : x) };
-      try { localStorage.setItem('ev_th', JSON.stringify(s)); } catch {}
-    }
-    G = { T: s.T }; tint();
-    set('hot', sgn(Math.round(mx(s.T))) + '°C'); set('cold', sgn(Math.round(mn(s.T))) + '°C');
-    ext = s.T.map((t, i) => ({ t, la: LATS[Math.floor(i / 36)] * D, lo: LONS[i % 36] * D })).filter(e => e.t >= 40 || e.t <= -35);
-  } catch { set('hot', '—'); set('cold', '—'); }
+  const info = $('#thinfo'); let s = null; try { s = JSON.parse(localStorage.getItem('ev_th2')); } catch {}
+  if (!s || Date.now() - s.t > 30 * 6e4) {
+    const pts = LATS.flatMap(la => LONS.map(lo => [la, lo])), v = new Array(pts.length).fill(null);
+    const run = async i => { const c = pts.slice(i, i + 50);
+      for (let k = 0; k < 3; k++) { try { const j = await get(`https://api.open-meteo.com/v1/forecast?latitude=${c.map(p => p[0])}&longitude=${c.map(p => p[1])}&current=temperature_2m&timezone=UTC`, 15000);
+        (Array.isArray(j) ? j : [j]).forEach((x, n) => { const t = x && x.current && x.current.temperature_2m; if (typeof t === 'number') v[i + n] = t; }); return; }
+        catch { await new Promise(r => setTimeout(r, 800 * (k + 1))); } } };
+    const starts = []; for (let i = 0; i < pts.length; i += 50) starts.push(i);
+    for (let i = 0; i < starts.length; i += 3) await Promise.all(starts.slice(i, i + 3).map(run));   // 3 requests at a time: avoids rate-limit drops
+    const n = v.filter(x => x != null).length;
+    for (let pass = 0; pass < 6 && v.some(x => x == null); pass++) { const w = [...v];          // fill gaps from live neighbours first
+      v.forEach((x, k) => { if (x != null) return; const r = Math.floor(k / 36), c = k % 36, nb = [r > 0 ? w[k - 36] : null, r < 16 ? w[k + 36] : null, w[r * 36 + (c + 35) % 36], w[r * 36 + (c + 1) % 36]].filter(y => y != null);
+        if (nb.length) v[k] = nb.reduce((p, q) => p + q, 0) / nb.length; }); }
+    s = { t: Date.now(), n, T: v.map((x, k) => x == null ? estT(LATS[Math.floor(k / 36)], LONS[k % 36]) : x) };
+    if (n >= 500) { try { localStorage.setItem('ev_th2', JSON.stringify(s)); } catch {} } else setTimeout(thermalScan, 90000);   // retry soon if the feed was patchy
+  }
+  G = { T: s.T }; tint();
+  set('hot', sgn(Math.round(mx(s.T))) + '°C'); set('cold', sgn(Math.round(mn(s.T))) + '°C');
+  ext = s.T.map((t, i) => ({ t, la: LATS[Math.floor(i / 36)] * D, lo: LONS[i % 36] * D })).filter(e => e.t >= 40 || e.t <= -35);
+  info.textContent = s.n >= 600 ? `LIVE · ${s.n}/612 POINTS` : s.n >= 60 ? `PARTIAL · ${s.n}/612 LIVE · GAPS ESTIMATED` : 'ESTIMATED · LIVE FEED UNAVAILABLE';
+  console.info('[thermal] live points:', s.n, '/ 612');
 }
 every(thermalScan, 30 * 6e4);
 
@@ -228,7 +240,7 @@ function torUI() {
 $('#tor').onclick = e => { const b = e.target.closest('button'); if (b) { fly = { la: tors[b.dataset.i][0] * D, lo: tors[b.dataset.i][1] * D }; en = 1; } };
 function setMode(m) {
   mode = mode === m ? 'off' : m; $('#bT').setAttribute('aria-pressed', mode === 'thermal'); $('#bK').setAttribute('aria-pressed', mode === 'tornado');
-  document.querySelector('header').classList.toggle('th', mode !== 'off');
+  document.querySelector('header').classList.toggle('th', mode !== 'off'); document.querySelector('header').classList.toggle('tm', mode === 'thermal');
   $('#legend').innerHTML = mode === 'tornado' ? ['LOW', 'MODERATE', 'HIGH', 'EXTREME'].map((n, i) => `<span class="sw" style="--c:${COL[48 + i]}">${n}</span>`).join('') : '<span>-30°C</span><i></i><span>45°C</span>';
   torUI(); if (mode === 'tornado' && !TG) tscan();
 }
