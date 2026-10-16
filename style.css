@@ -20,6 +20,16 @@ header small{display:block;margin-top:6px;letter-spacing:.2em;color:#555;font-va
 .t h3{border:0;padding:0;margin:0 0 6px}
 .t .big{text-align:left;font-size:24px;margin:0}
 .t .sub{text-align:left;margin:4px 0 0;letter-spacing:.12em;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header button{pointer-events:auto;margin-top:10px;background:none;border:1px solid rgba(255,255,255,.2);color:#888;font:600 10px Rajdhani,sans-serif;letter-spacing:.3em;padding:5px 12px;border-radius:2px;cursor:pointer}
+header button[aria-pressed=true]{color:#fff;border-color:#fff}
+header button:focus-visible,#alert button:focus-visible{outline:1px solid #fff;outline-offset:2px}
+#legend{display:none;align-items:center;justify-content:center;gap:8px;margin-top:8px;font-size:10px;color:#777;letter-spacing:.15em}
+#legend i{width:130px;height:5px;background:linear-gradient(90deg,hsl(250,85%,58%),hsl(180,85%,58%),hsl(90,85%,58%),hsl(40,85%,58%),hsl(0,85%,58%))}
+header.th #legend{display:flex}
+#alert{position:fixed;top:112px;left:50%;transform:translateX(-50%);z-index:4;width:min(560px,calc(100% - 24px));background:rgba(20,4,2,.92);border:1px solid #ff5a3c;border-radius:3px;padding:8px 12px;box-shadow:0 0 30px rgba(255,90,60,.25)}
+#alert button{display:block;width:100%;text-align:left;background:none;border:0;color:#eee;font:600 12px Rajdhani,sans-serif;letter-spacing:.08em;padding:4px 0;cursor:pointer}
+#alert b{color:#ff5a3c;letter-spacing:.15em}
+#alert small{display:block;margin-top:4px;color:#8a6a64;font-size:10px;letter-spacing:.06em}
 #card{position:fixed;width:290px;z-index:5;background:#050505;border:1px solid rgba(255,255,255,.2);border-radius:3px;padding:16px 18px;box-shadow:0 0 40px #000}
 .ch{display:flex;gap:8px;align-items:center;font-size:10px;letter-spacing:.3em;color:#888}
 .ch i{width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 8px #fff}

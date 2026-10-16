@@ -21,6 +21,7 @@ Run locally: `npx serve .` (any static server works; don't open index.html via `
 | Quakes, strongest quake, pulsing rings on the globe | USGS |
 | Wildfires, storms, volcanoes, open events | NASA EONET |
 | ISS position, altitude, velocity | wheretheiss.at |
+| Thermal layer (10° global temperature grid, tints the globe) + cyclone scan | Open-Meteo forecast (cached 3 h in the browser) |
 | Country CO₂, forest, renewables, population | World Bank + BigDataCloud (reverse geocode) |
 
 Static reference values (marked in the UI as ref/est.): sea level +3.4 mm/yr, 37.4 Gt annual CO₂ (Global Carbon Budget 2024); the "this year" counter extrapolates that rate.
@@ -28,3 +29,8 @@ Static reference values (marked in the UI as ref/est.): sea level +3.4 mm/yr, 37
 ## Optional: self-host the map outline
 The globe fetches land shapes from a CDN. To remove that dependency:
 `curl -L -o data/land-110m.json https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json` and commit it.
+
+## Thermal layer & cyclone warning
+- **THERMAL LAYER** (button, top centre) tints the globe with current 2 m air temperature from a 10° global grid, interpolated between points.
+- **Cyclone warning** scans the 5-day wind-gust and pressure forecast on that grid in the tropics (5–35° latitude). Strong signals are re-checked on a finer 1.5° grid; a banner appears, the storm pulses on the globe, and clicking the banner flies to it.
+  This is a coarse model-based *signal*, not an official warning. It can miss small storms and should always point users to their national weather service.
