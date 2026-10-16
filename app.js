@@ -113,7 +113,7 @@ function build(rs) {
 })();
 
 /* ---------- render ---------- */
-let w, h, R, CX, CY, dpr, yaw = 80 * D, pitch = 20 * D, vy = 0, vp = 0, en = 1, drag = null, marker = null, mode = 'thermal', G = null, TG = null, tors = [], ext = [], warns = [], fly = null;
+let w, h, R, CX, CY, dpr, yaw = 80 * D, pitch = 20 * D, vy = 0, vp = 0, en = 1, drag = null, marker = null, mode = 'thermal', G = null, TG = null, tors = [], ext = [], warns = [], fly = null, hov = null;
 const stars = Array.from({ length: 900 }, () => { const u = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - u * u), r = 1.15 + Math.random() * 2;
   return { x: s * Math.cos(a) * r, y: u * r, z: s * Math.sin(a) * r, j: [Math.random() - .5, Math.random() - .5] }; });
 const grid = [];
@@ -153,16 +153,15 @@ async function scan() {
     let s = null; try { s = JSON.parse(localStorage.getItem('ev_scan')); } catch {}
     if (!s || Date.now() - s.t > 3 * 36e5) {
       const pts = LATS.flatMap(la => LONS.map(lo => [la, lo])), flag = [];
-      const r = await batch(pts, 'current=temperature_2m&hourly=wind_gusts_10m,pressure_msl&forecast_days=5');
+      const r = await batch(pts, 'hourly=wind_gusts_10m,pressure_msl&forecast_days=5');
       r.forEach((x, i) => { const [la, lo] = pts[i]; if (Math.abs(la) < 5 || Math.abs(la) > 35) return;
         const g = mx(x.hourly.wind_gusts_10m), p = mn(x.hourly.pressure_msl); if (g >= 70 && p <= 1004) flag.push({ la, lo, g }); });
-      s = { t: Date.now(), T: r.map(x => x.current.temperature_2m), w: await refine(flag) };
+      s = { t: Date.now(), w: await refine(flag) };
       try { localStorage.setItem('ev_scan', JSON.stringify(s)); } catch {}
     }
-    G = { T: s.T }; tint(); warns = s.w.map(w => ({ ...w, lv: w.g >= 160 ? 'SEVERE' : w.g >= 120 ? 'WARNING' : 'WATCH' }));
-    set('hot', sgn(Math.round(mx(s.T))) + '°C'); set('cold', sgn(Math.round(mn(s.T))) + '°C'); set('cy', warns.length); alertUI();
-    ext = s.T.map((t, i) => ({ t, la: LATS[Math.floor(i / 36)] * D, lo: LONS[i % 36] * D })).filter(e => e.t >= 40 || e.t <= -35);
-  } catch { set('cy', '—'); set('hot', '—'); set('cold', '—'); }
+    warns = s.w.map(w => ({ ...w, lv: w.g >= 160 ? 'SEVERE' : w.g >= 120 ? 'WARNING' : 'WATCH' }));
+    set('cy', warns.length); alertUI();
+  } catch { set('cy', '—'); }
 }
 function alertUI() {
   const a = $('#alert'); if (!warns.length) { a.hidden = true; return; }
@@ -175,6 +174,22 @@ function alertUI() {
 $('#alert').onclick = e => { const b = e.target.closest('button'); if (b) { fly = { la: warns[b.dataset.i].la * D, lo: warns[b.dataset.i].lo * D }; en = 1; } };
 document.querySelector('header').classList.add('th');
 every(scan, 36e5);
+
+async function thermalScan() {
+  try {
+    let s = null; try { s = JSON.parse(localStorage.getItem('ev_th')); } catch {}
+    if (!s || Date.now() - s.t > 30 * 6e4) {
+      const r = await batch(LATS.flatMap(la => LONS.map(lo => [la, lo])), 'current=temperature_2m'), v = r.map(x => x.current && x.current.temperature_2m);
+      const ok = v.filter(x => x != null), m = ok.reduce((p, q) => p + q, 0) / ok.length;
+      s = { t: Date.now(), T: v.map(x => x == null ? m : x) };
+      try { localStorage.setItem('ev_th', JSON.stringify(s)); } catch {}
+    }
+    G = { T: s.T }; tint();
+    set('hot', sgn(Math.round(mx(s.T))) + '°C'); set('cold', sgn(Math.round(mn(s.T))) + '°C');
+    ext = s.T.map((t, i) => ({ t, la: LATS[Math.floor(i / 36)] * D, lo: LONS[i % 36] * D })).filter(e => e.t >= 40 || e.t <= -35);
+  } catch { set('hot', '—'); set('cold', '—'); }
+}
+every(thermalScan, 30 * 6e4);
 
 /* ---------- tornado-favourability (CAPE x deep-layer shear, 3-day forecast, land 16-56° both hemispheres) ---------- */
 const LV = ix => ix >= 70 ? ['EXTREME', 51] : ix >= 50 ? ['HIGH', 50] : ix >= 30 ? ['MODERATE', 49] : ['LOW', 48];
@@ -266,6 +281,16 @@ function frame(t) {
   if (live.iss) { const p = P(live.iss.la, live.iss.lo), k = p[2] > 0 ? 1 : .25, x = CX + R * 1.06 * p[0], y = CY - R * 1.06 * p[1];
     cx.globalAlpha = k; cx.beginPath(); cx.moveTo(x - 7, y); cx.lineTo(x + 7, y); cx.moveTo(x, y - 7); cx.lineTo(x, y + 7); cx.stroke();
     cx.beginPath(); cx.arc(x, y, 2.5, 0, 7); cx.fill(); cx.font = '600 10px Rajdhani,sans-serif'; cx.fillText('ISS', x + 9, y - 6); }
+  if (mode === 'thermal' && G) {
+    cx.font = '600 10px Rajdhani,sans-serif'; cx.textAlign = 'center'; cx.lineWidth = 3; cx.lineJoin = 'round';
+    G.T.forEach((t, i) => { const p = P(LATS[Math.floor(i / 36)] * D, LONS[i % 36] * D); if (p[2] < .28) return; const x = CX + R * p[0], y = CY - R * p[1] + 3, s = Math.round(t) + '°';
+      cx.globalAlpha = .5 + .5 * p[2]; cx.strokeStyle = 'rgba(0,0,0,.85)'; cx.strokeText(s, x, y); cx.fillStyle = COL[Math.round(cl((t + 30) / 75, 0, 1) * 47)]; cx.fillText(s, x, y); });
+    if (hov && !drag) { const x = (hov.x - CX) / R, y = (CY - hov.y) / R, r2 = x * x + y * y;
+      if (r2 < 1) { const z = Math.sqrt(1 - r2), la = Math.asin(z * sp + y * cp) / D, lo = (yaw + Math.atan2(x, z * cp - y * sp)) / D, t = interp(la, ((lo + 540) % 360) - 180);
+        cx.font = '700 14px Rajdhani,sans-serif'; cx.textAlign = 'left'; const s = `${t.toFixed(1)}°C / ${(t * 1.8 + 32).toFixed(0)}°F`;
+        cx.globalAlpha = 1; cx.strokeText(s, hov.x + 14, hov.y - 10); cx.fillStyle = '#fff'; cx.fillText(s, hov.x + 14, hov.y - 10); } }
+    cx.textAlign = 'left'; cx.strokeStyle = cx.fillStyle = '#fff'; cx.lineWidth = 1;
+  }
   if (mode === 'thermal') {
     for (const f of live.fires || []) { const p = P(f.la, f.lo); if (p[2] <= 0) continue; const x = CX + R * p[0], y = CY - R * p[1], g = cx.createRadialGradient(x, y, 0, x, y, 9);
       g.addColorStop(0, f.v ? 'rgba(255,50,50,.95)' : 'rgba(255,170,30,.95)'); g.addColorStop(1, 'rgba(255,90,0,0)');
@@ -291,7 +316,8 @@ requestAnimationFrame(frame);
 
 /* ---------- interaction ---------- */
 cv.onpointerdown = e => { cv.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, m: 0 }; fly = null; cv.classList.add('g'); };
-cv.onpointermove = e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.m += Math.abs(dx) + Math.abs(dy);
+cv.onpointerleave = () => { hov = null; };
+cv.onpointermove = e => { hov = { x: e.clientX, y: e.clientY }; if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.m += Math.abs(dx) + Math.abs(dy);
   yaw -= dx / R; pitch += dy / R; vy = -dx / R; vp = dy / R; en = Math.min(1, en + (Math.abs(dx) + Math.abs(dy)) / 90); };
 cv.onpointerup = e => { const click = drag && drag.m < 5; drag = null; cv.classList.remove('g'); if (click) pick(e.clientX, e.clientY); };
 cv.onkeydown = e => { const k = { ArrowLeft: [-.08, 0], ArrowRight: [.08, 0], ArrowUp: [0, .08], ArrowDown: [0, -.08] }[e.key]; if (k) { yaw += k[0]; pitch += k[1]; en = Math.min(1, en + .3); e.preventDefault(); } };
